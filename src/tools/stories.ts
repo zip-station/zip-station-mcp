@@ -25,18 +25,25 @@ export function registerStoryTools(server: McpServer, api: ZipStationApi) {
     {
       title: "List stories",
       description:
-        "Search kanban stories in a company. Returns up to 25 most-recently-updated stories matching the query. Stories that are in the resolved column are excluded unless includeResolved is true.",
+        "Search kanban stories in a company across every state. Returns up to 25 most-recently-updated stories matching the filters. " +
+        "A story's state is its kanban column (see `columnName` in the results, e.g. 'To Do', 'In Progress', 'Done'). " +
+        "Pass `status` to filter to a single state by column name. Stories in the resolved column are excluded unless includeResolved is true.",
       inputSchema: {
         companyId: z.string().describe("Zip Station company ID."),
         projectId: z.string().optional().describe("Limit to a single project. Omit to search across all accessible projects."),
         query: z.string().optional().describe("Free-text query. Supports 'STR-23' card numbers and title substring match."),
+        status: z
+          .string()
+          .optional()
+          .describe("Filter by state — the kanban column name (case-insensitive), e.g. 'In Progress'. Omit to include every state."),
         includeResolved: z.boolean().optional().describe("If true, include stories in the resolved column. Default false."),
       },
     },
-    async ({ companyId, projectId, query, includeResolved }) => {
+    async ({ companyId, projectId, query, status, includeResolved }) => {
       const params = new URLSearchParams();
       if (projectId) params.set("projectId", projectId);
       if (query) params.set("query", query);
+      if (status) params.set("status", status);
       const qs = params.toString();
       const stories = await api.get<KanbanStorySummary[]>(
         `/api/v1/companies/${encodeURIComponent(companyId)}/stories${qs ? `?${qs}` : ""}`
