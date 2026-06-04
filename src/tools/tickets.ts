@@ -53,6 +53,49 @@ export function registerTicketTools(server: McpServer, api: ZipStationApi) {
   );
 
   server.registerTool(
+    "create_ticket",
+    {
+      title: "Create ticket",
+      description:
+        "Open a new ticket in a project. The ticket starts in the Open state and is assigned the next ticket number. " +
+        "Provide `bodyHtml` (and/or `body`) to seed the first message; omit both to create an empty ticket. " +
+        "If `subject` is omitted, the project's subject template is used.",
+      inputSchema: {
+        companyId: z.string().describe("Zip Station company ID."),
+        projectId: z.string().describe("Project the ticket belongs to."),
+        subject: z.string().optional().describe("Ticket subject. Omit to use the project's subject template."),
+        priority: z.enum(TICKET_PRIORITIES).optional().describe("Priority. Default Normal."),
+        customerName: z.string().optional().describe("Customer's display name."),
+        customerEmail: z.string().optional().describe("Customer's email address."),
+        tags: z.array(z.string()).optional().describe("Tags to apply to the ticket."),
+        bodyHtml: z.string().optional().describe("First message body (HTML). Omit to create a ticket with no initial message."),
+        body: z.string().optional().describe("Plaintext fallback for the first message. Defaults to a stripped version of bodyHtml."),
+      },
+    },
+    async ({ companyId, projectId, subject, priority, customerName, customerEmail, tags, bodyHtml, body }) => {
+      const plain = body ?? (bodyHtml ? bodyHtml.replace(/<[^>]+>/g, "") : undefined);
+      const ticket = await api.post<unknown>(
+        `/api/v1/companies/${encodeURIComponent(companyId)}/tickets`,
+        {
+          projectId,
+          subject: subject ?? "",
+          priority: priority ?? "Normal",
+          customerName,
+          customerEmail,
+          tags,
+          body: plain,
+          bodyHtml,
+        }
+      );
+      return {
+        content: [
+          { type: "text" as const, text: JSON.stringify(ticket, null, 2) },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
     "get_ticket",
     {
       title: "Get ticket",

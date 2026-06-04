@@ -19,7 +19,52 @@ interface KanbanStoryDetail extends KanbanStorySummary {
   linkedTicketIds?: string[];
 }
 
+const STORY_TYPES = ["Feature", "Bug", "Improvement", "TechDebt"] as const;
+const STORY_PRIORITIES = ["Low", "Normal", "High", "Urgent"] as const;
+
 export function registerStoryTools(server: McpServer, api: ZipStationApi) {
+  server.registerTool(
+    "create_story",
+    {
+      title: "Create story",
+      description:
+        "Create a new kanban story (card) in a project's board. Returns the created story including its card number. " +
+        "If `columnId` is omitted, the story lands in the board's first column (typically the backlog / To Do).",
+      inputSchema: {
+        companyId: z.string().describe("Zip Station company ID."),
+        projectId: z.string().describe("Project whose board the story is added to."),
+        title: z.string().min(1).describe("Story title (required)."),
+        descriptionHtml: z.string().optional().describe("Story description (HTML)."),
+        type: z.enum(STORY_TYPES).optional().describe("Story type. Default Feature."),
+        priority: z.enum(STORY_PRIORITIES).optional().describe("Priority. Default Normal."),
+        columnId: z.string().optional().describe("Target column (state) ID. Omit to use the board's first column."),
+        tags: z.array(z.string()).optional().describe("Tags to apply to the story."),
+        assignedToUserId: z.string().optional().describe("User ID to assign the story to."),
+        linkedTicketIds: z.array(z.string()).optional().describe("Ticket IDs to link to this story."),
+      },
+    },
+    async ({ companyId, projectId, title, descriptionHtml, type, priority, columnId, tags, assignedToUserId, linkedTicketIds }) => {
+      const story = await api.post<KanbanStoryDetail>(
+        `/api/v1/companies/${encodeURIComponent(companyId)}/projects/${encodeURIComponent(projectId)}/board/cards`,
+        {
+          columnId: columnId ?? "",
+          title,
+          descriptionHtml,
+          type: type ?? "Feature",
+          priority: priority ?? "Normal",
+          tags,
+          assignedToUserId,
+          linkedTicketIds,
+        }
+      );
+      return {
+        content: [
+          { type: "text" as const, text: JSON.stringify(story, null, 2) },
+        ],
+      };
+    }
+  );
+
   server.registerTool(
     "list_stories",
     {
