@@ -151,4 +151,154 @@ export function registerTicketTools(server: McpServer, api: ZipStationApi) {
       };
     }
   );
+
+  server.registerTool(
+    "set_ticket_status",
+    {
+      title: "Set ticket status / state",
+      description:
+        "Move a ticket to a different state (Open, Pending, Resolved, Closed, Merged, Abandoned). " +
+        "This posts a system message on the ticket noting the change. Returns the updated ticket.",
+      inputSchema: {
+        companyId: z.string().describe("Zip Station company ID."),
+        ticketId: z.string().describe("Internal ticket ID (24-char ObjectId)."),
+        status: z.enum(TICKET_STATUSES).describe("Target state."),
+      },
+    },
+    async ({ companyId, ticketId, status }) => {
+      const ticket = await api.patch<unknown>(
+        `/api/v1/companies/${encodeURIComponent(companyId)}/tickets/${encodeURIComponent(ticketId)}/status`,
+        { status }
+      );
+      return {
+        content: [
+          { type: "text" as const, text: JSON.stringify(ticket, null, 2) },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
+    "set_ticket_priority",
+    {
+      title: "Set ticket priority",
+      description: "Change a ticket's priority (Low, Normal, High, Urgent). Posts a system message noting the change. Returns the updated ticket.",
+      inputSchema: {
+        companyId: z.string().describe("Zip Station company ID."),
+        ticketId: z.string().describe("Internal ticket ID (24-char ObjectId)."),
+        priority: z.enum(TICKET_PRIORITIES).describe("Target priority."),
+      },
+    },
+    async ({ companyId, ticketId, priority }) => {
+      const ticket = await api.patch<unknown>(
+        `/api/v1/companies/${encodeURIComponent(companyId)}/tickets/${encodeURIComponent(ticketId)}/priority`,
+        { priority }
+      );
+      return {
+        content: [
+          { type: "text" as const, text: JSON.stringify(ticket, null, 2) },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
+    "assign_ticket",
+    {
+      title: "Assign / unassign ticket",
+      description: "Assign a ticket to a user, or unassign it. Pass a userId to assign; omit userId (or pass null) to leave it unassigned.",
+      inputSchema: {
+        companyId: z.string().describe("Zip Station company ID."),
+        ticketId: z.string().describe("Internal ticket ID (24-char ObjectId)."),
+        userId: z.string().nullable().optional().describe("User ID to assign the ticket to. Omit or pass null to unassign."),
+      },
+    },
+    async ({ companyId, ticketId, userId }) => {
+      const ticket = await api.patch<unknown>(
+        `/api/v1/companies/${encodeURIComponent(companyId)}/tickets/${encodeURIComponent(ticketId)}/assign`,
+        { userId: userId ?? null }
+      );
+      return {
+        content: [
+          { type: "text" as const, text: JSON.stringify(ticket, null, 2) },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
+    "link_tickets",
+    {
+      title: "Link two tickets",
+      description:
+        "Create a bidirectional link between two tickets (e.g. duplicates or related issues). The source ticket is given " +
+        "by its internal ID; the target by its number (e.g. '6') or internal ID. Returns the updated source ticket.",
+      inputSchema: {
+        companyId: z.string().describe("Zip Station company ID."),
+        ticketId: z.string().describe("Source ticket internal ID (24-char ObjectId)."),
+        targetTicketId: z.string().describe("Target ticket number (e.g. '6') or internal ID to link."),
+      },
+    },
+    async ({ companyId, ticketId, targetTicketId }) => {
+      const ticket = await api.post<unknown>(
+        `/api/v1/companies/${encodeURIComponent(companyId)}/tickets/${encodeURIComponent(ticketId)}/link`,
+        { targetTicketId }
+      );
+      return {
+        content: [
+          { type: "text" as const, text: JSON.stringify(ticket, null, 2) },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
+    "unlink_tickets",
+    {
+      title: "Unlink two tickets",
+      description: "Remove the link between two tickets. Source by internal ID; target by number or internal ID. Returns the updated source ticket.",
+      inputSchema: {
+        companyId: z.string().describe("Zip Station company ID."),
+        ticketId: z.string().describe("Source ticket internal ID (24-char ObjectId)."),
+        targetTicketId: z.string().describe("Target ticket number (e.g. '6') or internal ID to unlink."),
+      },
+    },
+    async ({ companyId, ticketId, targetTicketId }) => {
+      const ticket = await api.post<unknown>(
+        `/api/v1/companies/${encodeURIComponent(companyId)}/tickets/${encodeURIComponent(ticketId)}/unlink`,
+        { targetTicketId }
+      );
+      return {
+        content: [
+          { type: "text" as const, text: JSON.stringify(ticket, null, 2) },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
+    "merge_ticket",
+    {
+      title: "Merge one ticket into another",
+      description:
+        "Merge the source ticket into a target ticket. The source (given by internal ID) is merged into the target " +
+        "(given by number or internal ID). Use for consolidating duplicate tickets. Returns the updated source ticket.",
+      inputSchema: {
+        companyId: z.string().describe("Zip Station company ID."),
+        ticketId: z.string().describe("Source ticket internal ID (24-char ObjectId) — the ticket being merged away."),
+        targetTicketId: z.string().describe("Target ticket number (e.g. '6') or internal ID to merge into."),
+      },
+    },
+    async ({ companyId, ticketId, targetTicketId }) => {
+      const ticket = await api.post<unknown>(
+        `/api/v1/companies/${encodeURIComponent(companyId)}/tickets/${encodeURIComponent(ticketId)}/merge`,
+        { targetTicketId }
+      );
+      return {
+        content: [
+          { type: "text" as const, text: JSON.stringify(ticket, null, 2) },
+        ],
+      };
+    }
+  );
 }
