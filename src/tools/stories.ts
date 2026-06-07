@@ -12,11 +12,25 @@ interface KanbanStorySummary {
   isResolved?: boolean;
 }
 
-interface KanbanStoryDetail extends KanbanStorySummary {
-  bodyHtml?: string;
+// The kanban card itself (returned directly by create / PATCH).
+interface KanbanCard {
+  id: string;
+  cardNumber: number;
+  columnId: string;
+  title: string;
+  projectId: string;
   assignedToUserId?: string;
-  comments?: Array<{ id: string; bodyHtml: string; authorName?: string; createdOnDateTime: number }>;
   linkedTicketIds?: string[];
+  linkedStoryIds?: string[];
+}
+
+// GET /board/cards/{cardNumber} returns this wrapper — the card is nested under `card`,
+// alongside its comments and linked entities. NOT a bare card.
+interface KanbanCardDetail {
+  card: KanbanCard;
+  comments?: Array<{ id: string; bodyHtml: string; authorName?: string; createdOnDateTime: number }>;
+  linkedTickets?: unknown[];
+  linkedStories?: unknown[];
 }
 
 interface KanbanColumn {
@@ -59,7 +73,7 @@ export function registerStoryTools(server: McpServer, api: ZipStationApi) {
       },
     },
     async ({ companyId, projectId, title, descriptionHtml, type, priority, columnId, tags, assignedToUserId, linkedTicketIds }) => {
-      const story = await api.post<KanbanStoryDetail>(
+      const story = await api.post<KanbanCard>(
         `/api/v1/companies/${encodeURIComponent(companyId)}/projects/${encodeURIComponent(projectId)}/board/cards`,
         {
           columnId: columnId ?? "",
@@ -132,7 +146,7 @@ export function registerStoryTools(server: McpServer, api: ZipStationApi) {
       },
     },
     async ({ companyId, projectId, cardNumber }) => {
-      const story = await api.get<KanbanStoryDetail>(
+      const story = await api.get<KanbanCardDetail>(
         `/api/v1/companies/${encodeURIComponent(companyId)}/projects/${encodeURIComponent(projectId)}/board/cards/${cardNumber}`
       );
       return {
@@ -147,11 +161,19 @@ export function registerStoryTools(server: McpServer, api: ZipStationApi) {
     "add_story_comment",
     {
       title: "Add story comment",
-      description: "Append a comment to a kanban story. Body is HTML; plain text works (it will be displayed as-is).",
+      description:
+        "Append a comment to a kanban story. Body is HTML; plain text works (it will be displayed as-is). " +
+        "Requires the story's internal ID, NOT its card number (e.g. STR-23). Get the ID from list_stories " +
+        "(the top-level `id` field of each result) or from get_story (the `card.id` field). If you only have a card " +
+        "number, call get_story first and read `card.id`.",
       inputSchema: {
         companyId: z.string().describe("Zip Station company ID."),
         projectId: z.string().describe("Project the story belongs to."),
-        storyId: z.string().describe("Internal story ID (the 'id' field from list_stories / get_story, NOT the card number)."),
+        storyId: z
+          .string()
+          .describe(
+            "Internal story ID — list_stories `id` or get_story `card.id`. NOT the card number (the number in STR-23)."
+          ),
         bodyHtml: z.string().min(1).describe("Comment body (HTML allowed)."),
       },
     },
@@ -253,11 +275,9 @@ export function registerStoryTools(server: McpServer, api: ZipStationApi) {
         };
       }
 
-      const story = await api.get<KanbanStoryDetail>(
-        `/api/v1/companies/${encodeURIComponent(companyId)}/projects/${encodeURIComponent(projectId)}/board/cards/${cardNumber}`
-      );
+      const story = await resolveStory(companyId, projectId, cardNumber);
 
-      const updated = await api.patch<KanbanStoryDetail>(
+      const updated = await api.patch<KanbanCard>(
         `/api/v1/companies/${encodeURIComponent(companyId)}/projects/${encodeURIComponent(projectId)}/board/cards/${encodeURIComponent(story.id)}`,
         { columnId: targetId }
       );
@@ -291,10 +311,8 @@ export function registerStoryTools(server: McpServer, api: ZipStationApi) {
       },
     },
     async ({ companyId, projectId, cardNumber, title, descriptionHtml, type, priority, tags, assignedToUserId, clearAssignee }) => {
-      const story = await api.get<KanbanStoryDetail>(
-        `/api/v1/companies/${encodeURIComponent(companyId)}/projects/${encodeURIComponent(projectId)}/board/cards/${cardNumber}`
-      );
-      const updated = await api.patch<KanbanStoryDetail>(
+      const story = await resolveStory(companyId, projectId, cardNumber);
+      const updated = await api.patch<KanbanCard>(
         `/api/v1/companies/${encodeURIComponent(companyId)}/projects/${encodeURIComponent(projectId)}/board/cards/${encodeURIComponent(story.id)}`,
         { title, descriptionHtml, type, priority, tags, assignedToUserId, clearAssignee }
       );
@@ -306,11 +324,17 @@ export function registerStoryTools(server: McpServer, api: ZipStationApi) {
     }
   );
 
-  // Resolve a story card number to its internal card ID.
-  async function resolveStoryId(companyId: string, projectId: string, cardNumber: number): Promise<KanbanStoryDetail> {
-    return api.get<KanbanStoryDetail>(
+  // Resolve a story card number to its internal card (with the real `id`).
+  // GET /board/cards/{cardNumber} wraps the card under `card`, so unwrap it here.
+  async function resolveStory(companyId: string, projectId: string, cardNumber: number): Promise<KanbanCard> {
+    const detail = await api.get<KanbanCardDetail>(
       `/api/v1/companies/${encodeURIComponent(companyId)}/projects/${encodeURIComponent(projectId)}/board/cards/${cardNumber}`
     );
+    const card = detail?.card;
+    if (!card?.id) {
+      throw new Error(`Could not resolve story STR-${cardNumber} to an internal card ID (no card found for that number in this project).`);
+    }
+    return card;
   }
 
   server.registerTool(
@@ -326,7 +350,7 @@ export function registerStoryTools(server: McpServer, api: ZipStationApi) {
       },
     },
     async ({ companyId, projectId, cardNumber }) => {
-      const story = await resolveStoryId(companyId, projectId, cardNumber);
+      const story = await resolveStory(companyId, projectId, cardNumber);
       await api.delete<unknown>(
         `/api/v1/companies/${encodeURIComponent(companyId)}/projects/${encodeURIComponent(projectId)}/board/cards/${encodeURIComponent(story.id)}`
       );
@@ -353,7 +377,7 @@ export function registerStoryTools(server: McpServer, api: ZipStationApi) {
       },
     },
     async ({ companyId, projectId, cardNumber, ticketIdOrNumber }) => {
-      const story = await resolveStoryId(companyId, projectId, cardNumber);
+      const story = await resolveStory(companyId, projectId, cardNumber);
       const updated = await api.post<unknown>(
         `/api/v1/companies/${encodeURIComponent(companyId)}/projects/${encodeURIComponent(projectId)}/board/cards/${encodeURIComponent(story.id)}/link-ticket`,
         { ticketIdOrNumber }
@@ -381,7 +405,7 @@ export function registerStoryTools(server: McpServer, api: ZipStationApi) {
       },
     },
     async ({ companyId, projectId, cardNumber, ticketId }) => {
-      const story = await resolveStoryId(companyId, projectId, cardNumber);
+      const story = await resolveStory(companyId, projectId, cardNumber);
       const updated = await api.delete<unknown>(
         `/api/v1/companies/${encodeURIComponent(companyId)}/projects/${encodeURIComponent(projectId)}/board/cards/${encodeURIComponent(story.id)}/link-ticket/${encodeURIComponent(ticketId)}`
       );
@@ -408,7 +432,7 @@ export function registerStoryTools(server: McpServer, api: ZipStationApi) {
       },
     },
     async ({ companyId, projectId, cardNumber, otherCardIdOrNumber }) => {
-      const story = await resolveStoryId(companyId, projectId, cardNumber);
+      const story = await resolveStory(companyId, projectId, cardNumber);
       const updated = await api.post<unknown>(
         `/api/v1/companies/${encodeURIComponent(companyId)}/projects/${encodeURIComponent(projectId)}/board/cards/${encodeURIComponent(story.id)}/link-story`,
         { cardIdOrNumber: otherCardIdOrNumber }
@@ -437,8 +461,8 @@ export function registerStoryTools(server: McpServer, api: ZipStationApi) {
     },
     async ({ companyId, projectId, cardNumber, otherCardNumber }) => {
       const [story, other] = await Promise.all([
-        resolveStoryId(companyId, projectId, cardNumber),
-        resolveStoryId(companyId, projectId, otherCardNumber),
+        resolveStory(companyId, projectId, cardNumber),
+        resolveStory(companyId, projectId, otherCardNumber),
       ]);
       const updated = await api.delete<unknown>(
         `/api/v1/companies/${encodeURIComponent(companyId)}/projects/${encodeURIComponent(projectId)}/board/cards/${encodeURIComponent(story.id)}/link-story/${encodeURIComponent(other.id)}`
