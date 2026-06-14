@@ -18,11 +18,17 @@ Per-request, stateless. The MCP server holds no session state; the bearer token 
 |---|---|
 | `whoami` | Returns the Zip Station user the PAT belongs to. |
 | `list_projects` | Lists projects the caller can access in a company. |
-| `list_stories` | Searches kanban stories. Resolved stories filtered out by default. |
+| `list_stories` | Searches kanban stories across every state. Filter by state with `status` (column name). Resolved stories filtered out by default. |
+| `create_story` | Creates a kanban story. Lands in the board's first column unless `columnId` is given. |
 | `get_story` | Full detail of one kanban story by card number (e.g. 23 for STR-23). |
 | `add_story_comment` | Posts a comment on a kanban story (uses internal story ID, not card number). |
+<<<<<<< HEAD
 | `delete_story` | Deletes/archives a kanban story (soft delete — voided off the board, recoverable). Accepts card number or internal story ID. |
 | `set_story_priority` | Bulk-sets the priority (Low/Normal/High/Urgent) of one or more stories. Reports per-story success/failure. |
+=======
+| `list_tickets` | Lists and searches tickets across every status. Filter by one or more states with `status`, plus priority/assignee/query. |
+| `create_ticket` | Opens a new ticket (Open state). Optional first message via `bodyHtml`/`body`. |
+>>>>>>> b3941b41c4959119e5280c03035de2baa8a75a6a
 | `get_ticket` | Reads a ticket and its messages. |
 | `add_ticket_message` | Adds a reply or internal note. Email-sends if not an internal note and the project has SMTP configured. |
 
