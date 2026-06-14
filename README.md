@@ -21,6 +21,8 @@ Per-request, stateless. The MCP server holds no session state; the bearer token 
 | `list_stories` | Searches kanban stories. Resolved stories filtered out by default. |
 | `get_story` | Full detail of one kanban story by card number (e.g. 23 for STR-23). |
 | `add_story_comment` | Posts a comment on a kanban story (uses internal story ID, not card number). |
+| `delete_story` | Deletes/archives a kanban story (soft delete — voided off the board, recoverable). Accepts card number or internal story ID. |
+| `set_story_priority` | Bulk-sets the priority (Low/Normal/High/Urgent) of one or more stories. Reports per-story success/failure. |
 | `get_ticket` | Reads a ticket and its messages. |
 | `add_ticket_message` | Adds a reply or internal note. Email-sends if not an internal note and the project has SMTP configured. |
 
