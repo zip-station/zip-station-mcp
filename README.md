@@ -21,6 +21,7 @@ Per-request, stateless. The MCP server holds no session state; the bearer token 
 | `list_stories` | Searches kanban stories across every state. Filter by state with `status` (column name). Resolved stories filtered out by default. |
 | `create_story` | Creates a kanban story. Lands in the board's first column unless `columnId` is given. |
 | `get_story` | Full detail of one kanban story by card number (e.g. 23 for STR-23). |
+| `reorder_story` | Reorders a story within its column (e.g. put STR-5 after STR-2, or send it to top/bottom). Doesn't change column — use `move_story` for that. |
 | `add_story_comment` | Posts a comment on a kanban story (uses internal story ID, not card number). |
 | `delete_story` | Deletes/archives a kanban story (soft delete — voided off the board, recoverable). By card number. |
 | `set_story_priority` | Bulk-sets the priority (Low/Normal/High/Urgent) of stories by card number. Reports per-story success/failure. |

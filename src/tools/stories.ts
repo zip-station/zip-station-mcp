@@ -17,6 +17,7 @@ interface KanbanCard {
   id: string;
   cardNumber: number;
   columnId: string;
+  position: number;
   title: string;
   projectId: string;
   assignedToUserId?: string;
@@ -50,6 +51,11 @@ interface KanbanBoard {
 
 const STORY_TYPES = ["Feature", "Bug", "Improvement", "TechDebt"] as const;
 const STORY_PRIORITIES = ["Low", "Normal", "High", "Urgent"] as const;
+
+// Gap used when placing a story at the top/bottom of a column or past an end card.
+// Matches the API's PositionStep (KanbanBoardController) so MCP-driven and UI-driven
+// ordering share the same fractional-position scale. Lower position = higher in column.
+const POSITION_STEP = 1000;
 
 export function registerStoryTools(server: McpServer, api: ZipStationApi) {
   server.registerTool(
@@ -280,6 +286,116 @@ export function registerStoryTools(server: McpServer, api: ZipStationApi) {
       const updated = await api.patch<KanbanCard>(
         `/api/v1/companies/${encodeURIComponent(companyId)}/projects/${encodeURIComponent(projectId)}/board/cards/${encodeURIComponent(story.id)}`,
         { columnId: targetId }
+      );
+      return {
+        content: [
+          { type: "text" as const, text: JSON.stringify(updated, null, 2) },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
+    "reorder_story",
+    {
+      title: "Reorder a story within its column",
+      description:
+        "Change a story's vertical order within its current column (state) — e.g. move STR-5 to sit right after STR-2. " +
+        "This does NOT change the column; use move_story for that. Lower position = higher in the column (top). " +
+        "Specify the destination ONE of these ways: `afterCardNumber` (place directly below that story), `beforeCardNumber` " +
+        "(place directly above it), or `position` ('top' or 'bottom' of the column). When using after/before, the reference " +
+        "story must be in the SAME column as the story being moved (move_story first if it isn't). Returns the updated story.",
+      inputSchema: {
+        companyId: z.string().describe("Zip Station company ID."),
+        projectId: z.string().describe("Project the story belongs to."),
+        cardNumber: z.number().int().positive().describe("Card number of the story to move (e.g. 5 for STR-5)."),
+        afterCardNumber: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe("Place the story directly BELOW this story's card number (same column). Provide exactly one of afterCardNumber / beforeCardNumber / position."),
+        beforeCardNumber: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe("Place the story directly ABOVE this story's card number (same column). Provide exactly one of afterCardNumber / beforeCardNumber / position."),
+        position: z
+          .enum(["top", "bottom"])
+          .optional()
+          .describe("Move to the very top or very bottom of the column. Provide exactly one of afterCardNumber / beforeCardNumber / position."),
+      },
+    },
+    async ({ companyId, projectId, cardNumber, afterCardNumber, beforeCardNumber, position }) => {
+      const specs = [
+        afterCardNumber != null ? "afterCardNumber" : null,
+        beforeCardNumber != null ? "beforeCardNumber" : null,
+        position != null ? "position" : null,
+      ].filter(Boolean);
+      if (specs.length !== 1) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text" as const,
+              text: "Provide exactly one of afterCardNumber, beforeCardNumber, or position.",
+            },
+          ],
+        };
+      }
+
+      const refCardNumber = afterCardNumber ?? beforeCardNumber;
+      if (refCardNumber === cardNumber) {
+        return {
+          isError: true,
+          content: [{ type: "text" as const, text: "Can't position a story relative to itself." }],
+        };
+      }
+
+      const story = await resolveStory(companyId, projectId, cardNumber);
+
+      // Pull the full column (sorted ascending by position = top→bottom on the server),
+      // excluding the story being moved so we reason about its destination neighbors.
+      const columnCards = (
+        await api.get<KanbanCard[]>(
+          `/api/v1/companies/${encodeURIComponent(companyId)}/projects/${encodeURIComponent(projectId)}/board/cards?columnId=${encodeURIComponent(story.columnId)}&includeArchived=true`
+        )
+      )
+        .filter((c) => c.columnId === story.columnId && c.id !== story.id)
+        .sort((a, b) => a.position - b.position);
+
+      let newPosition: number;
+      if (position === "top") {
+        newPosition = (columnCards[0]?.position ?? 0) - POSITION_STEP;
+      } else if (position === "bottom") {
+        newPosition = (columnCards[columnCards.length - 1]?.position ?? 0) + POSITION_STEP;
+      } else {
+        const refIndex = columnCards.findIndex((c) => c.cardNumber === refCardNumber);
+        if (refIndex === -1) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: "text" as const,
+                text: `STR-${refCardNumber} is not in the same column as STR-${cardNumber}. Move it there first (move_story), or reorder relative to a story in this column.`,
+              },
+            ],
+          };
+        }
+        const ref = columnCards[refIndex];
+        if (afterCardNumber != null) {
+          const next = columnCards[refIndex + 1];
+          newPosition = next ? (ref.position + next.position) / 2 : ref.position + POSITION_STEP;
+        } else {
+          const prev = columnCards[refIndex - 1];
+          newPosition = prev ? (prev.position + ref.position) / 2 : ref.position - POSITION_STEP;
+        }
+      }
+
+      const updated = await api.patch<KanbanCard>(
+        `/api/v1/companies/${encodeURIComponent(companyId)}/projects/${encodeURIComponent(projectId)}/board/cards/${encodeURIComponent(story.id)}`,
+        { position: newPosition }
       );
       return {
         content: [
