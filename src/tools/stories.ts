@@ -41,15 +41,26 @@ interface KanbanColumn {
   position: number;
 }
 
+interface KanbanCardTypeDefinition {
+  id: string;
+  label: string;
+  color?: string;
+}
+
 interface KanbanBoard {
   id: string;
   companyId: string;
   projectId: string;
   columns: KanbanColumn[];
   resolvedColumnId: string;
+  customCardTypes?: KanbanCardTypeDefinition[];
 }
 
-const STORY_TYPES = ["Feature", "Bug", "Improvement", "TechDebt"] as const;
+// The four always-available built-ins. A project may also define custom types on its board
+// (KanbanBoard.customCardTypes); a story's `type` can be a built-in name OR a custom type id.
+// `type` is accepted as a free string (the API validates it against this project's board) so
+// custom types work over MCP — call get_board to discover their ids.
+const BUILTIN_STORY_TYPES = "Feature, Bug, Improvement, TechDebt";
 const STORY_PRIORITIES = ["Low", "Normal", "High", "Urgent"] as const;
 
 // Gap used when placing a story at the top/bottom of a column or past an end card.
@@ -70,7 +81,10 @@ export function registerStoryTools(server: McpServer, api: ZipStationApi) {
         projectId: z.string().describe("Project whose board the story is added to."),
         title: z.string().min(1).describe("Story title (required)."),
         descriptionHtml: z.string().optional().describe("Story description (HTML)."),
-        type: z.enum(STORY_TYPES).optional().describe("Story type. Default Feature."),
+        type: z
+          .string()
+          .optional()
+          .describe(`Story type. A built-in (${BUILTIN_STORY_TYPES}) or a project custom type id from get_board. Default Feature.`),
         priority: z.enum(STORY_PRIORITIES).optional().describe("Priority. Default Normal."),
         columnId: z.string().optional().describe("Target column (state) ID. Omit to use the board's first column."),
         tags: z.array(z.string()).optional().describe("Tags to apply to the story."),
@@ -202,7 +216,8 @@ export function registerStoryTools(server: McpServer, api: ZipStationApi) {
       title: "Get board (columns / states)",
       description:
         "Fetch a project's kanban board, including the ordered list of columns (states) with their IDs and names, " +
-        "plus which column is the 'resolved' column. Use this to discover the columnId for a state before calling move_story.",
+        "plus which column is the 'resolved' column, and any custom story types defined for this project. " +
+        "Use this to discover the columnId for a state before calling move_story, or a custom story-type id before create_story/update_story.",
       inputSchema: {
         companyId: z.string().describe("Zip Station company ID."),
         projectId: z.string().describe("Project whose board to fetch."),
@@ -221,9 +236,21 @@ export function registerStoryTools(server: McpServer, api: ZipStationApi) {
           position: c.position,
           isResolvedColumn: c.id === board.resolvedColumnId,
         }));
+      const customCardTypes = (board.customCardTypes ?? []).map((t) => ({
+        id: t.id,
+        label: t.label,
+        color: t.color,
+      }));
       return {
         content: [
-          { type: "text" as const, text: JSON.stringify({ boardId: board.id, resolvedColumnId: board.resolvedColumnId, columns }, null, 2) },
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              { boardId: board.id, resolvedColumnId: board.resolvedColumnId, columns, customCardTypes },
+              null,
+              2,
+            ),
+          },
         ],
       };
     }
@@ -419,7 +446,10 @@ export function registerStoryTools(server: McpServer, api: ZipStationApi) {
         cardNumber: z.number().int().positive().describe("Story card number (e.g. 23 for STR-23)."),
         title: z.string().min(1).optional().describe("New title."),
         descriptionHtml: z.string().optional().describe("New description (HTML)."),
-        type: z.enum(STORY_TYPES).optional().describe("New story type."),
+        type: z
+          .string()
+          .optional()
+          .describe(`New story type. A built-in (${BUILTIN_STORY_TYPES}) or a project custom type id from get_board.`),
         priority: z.enum(STORY_PRIORITIES).optional().describe("New priority."),
         tags: z.array(z.string()).optional().describe("Replace the story's tags with this list."),
         assignedToUserId: z.string().optional().describe("User ID to assign the story to."),
