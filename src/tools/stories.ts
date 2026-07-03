@@ -53,7 +53,6 @@ interface KanbanBoard {
   projectId: string;
   columns: KanbanColumn[];
   resolvedColumnId: string;
-  intakeColumnId?: string;
   customCardTypes?: KanbanCardTypeDefinition[];
 }
 
@@ -63,6 +62,9 @@ interface KanbanBoard {
 // custom types work over MCP — call get_board to discover their ids.
 const BUILTIN_STORY_TYPES = "Feature, Bug, Improvement, TechDebt";
 const STORY_PRIORITIES = ["Low", "Normal", "High", "Urgent"] as const;
+// Lifecycle buckets relevant when creating a story. Backlog/Unreviewed are off-board; Committed
+// puts it on the board. (Resolved/Archived/Obsolete exist but aren't sensible for a brand-new card.)
+const STORY_STATUSES = ["Unreviewed", "Backlog", "Committed"] as const;
 
 // Gap used when placing a story at the top/bottom of a column or past an end card.
 // Matches the API's PositionStep (KanbanBoardController) so MCP-driven and UI-driven
@@ -75,8 +77,10 @@ export function registerStoryTools(server: McpServer, api: ZipStationApi) {
     {
       title: "Create story",
       description:
-        "Create a new kanban story (card) in a project's board. Returns the created story including its card number. " +
-        "If `columnId` is omitted, the story lands in the board's configured intake column (see get_board's intakeColumnId).",
+        "Create a new kanban story (card) in a project. Returns the created story including its card number. " +
+        "By default the story lands in the backlog (off the board, uncommitted) for triage. " +
+        "To put it on the board, pass a `columnId` (from get_board) — it's committed into that column — " +
+        "and/or pass `status` to set its lifecycle bucket explicitly (e.g. `Committed` with no columnId lands it in the board's first workflow column).",
       inputSchema: {
         companyId: z.string().describe("Zip Station company ID."),
         projectId: z.string().describe("Project whose board the story is added to."),
@@ -87,17 +91,25 @@ export function registerStoryTools(server: McpServer, api: ZipStationApi) {
           .optional()
           .describe(`Story type. A built-in (${BUILTIN_STORY_TYPES}) or a project custom type id from get_board. Default Feature.`),
         priority: z.enum(STORY_PRIORITIES).optional().describe("Priority. Default Normal."),
-        columnId: z.string().optional().describe("Target column (state) ID. Omit to use the board's intake column."),
+        columnId: z
+          .string()
+          .optional()
+          .describe("Board column (state) ID from get_board. Providing it commits the story onto the board in that column. Omit to leave it in the backlog."),
+        status: z
+          .enum(STORY_STATUSES)
+          .optional()
+          .describe("Lifecycle bucket. Default `Backlog` (off the board, uncommitted). `Committed` puts it on the board; `Unreviewed` is the raw intake/triage bucket. A supplied `columnId` implies Committed."),
         tags: z.array(z.string()).optional().describe("Tags to apply to the story."),
         assignedToUserId: z.string().optional().describe("User ID to assign the story to."),
         linkedTicketIds: z.array(z.string()).optional().describe("Ticket IDs to link to this story."),
       },
     },
-    async ({ companyId, projectId, title, descriptionHtml, type, priority, columnId, tags, assignedToUserId, linkedTicketIds }) => {
+    async ({ companyId, projectId, title, descriptionHtml, type, priority, columnId, status, tags, assignedToUserId, linkedTicketIds }) => {
       const story = await api.post<KanbanCard>(
         `/api/v1/companies/${encodeURIComponent(companyId)}/projects/${encodeURIComponent(projectId)}/board/cards`,
         {
           columnId: columnId ?? "",
+          status,
           title,
           descriptionHtml,
           type: type ?? "Feature",
@@ -236,7 +248,6 @@ export function registerStoryTools(server: McpServer, api: ZipStationApi) {
           name: c.name,
           position: c.position,
           isResolvedColumn: c.id === board.resolvedColumnId,
-          isIntakeColumn: c.id === board.intakeColumnId,
         }));
       const customCardTypes = (board.customCardTypes ?? []).map((t) => ({
         id: t.id,
@@ -248,7 +259,7 @@ export function registerStoryTools(server: McpServer, api: ZipStationApi) {
           {
             type: "text" as const,
             text: JSON.stringify(
-              { boardId: board.id, resolvedColumnId: board.resolvedColumnId, intakeColumnId: board.intakeColumnId, columns, customCardTypes },
+              { boardId: board.id, resolvedColumnId: board.resolvedColumnId, columns, customCardTypes },
               null,
               2,
             ),
